@@ -1,0 +1,38 @@
+{
+  "name": "skills-pm",
+  "version": "0.1.0",
+  "description": "A package manager for Cursor agent skills. Install skills from public or private GitHub repositories.",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "skills-pm": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/cli.ts --outdir dist --target node --packages external",
+    "test": "bun test",
+    "prepublishOnly": "bun test && bun run build",
+    "start": "bun run src/cli.ts"
+  },
+  "keywords": [
+    "cursor",
+    "skills",
+    "agent",
+    "ai",
+    "cli",
+    "package-manager"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/skills-pm"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3"
+  }
+}
