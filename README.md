@@ -11,11 +11,11 @@ A package manager for [Cursor](https://cursor.com) agent skills. Install skills 
 
 ```bash
 # Run without installing
-npx skills-pm <command>
-bunx skills-pm <command>
+npx @rohilaharsh/skills-pm <command>
+bunx @rohilaharsh/skills-pm <command>
 
 # Or install globally
-npm install -g skills-pm
+npm install -g @rohilaharsh/skills-pm
 ```
 
 ## Usage

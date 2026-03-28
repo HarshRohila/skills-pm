@@ -1,6 +1,6 @@
 {
-  "name": "skills-pm",
-  "version": "0.1.0",
+  "name": "@rohilaharsh/skills-pm",
+  "version": "0.1.1",
   "description": "A package manager for Cursor agent skills. Install skills from public or private GitHub repositories.",
   "type": "module",
   "main": "dist/cli.js",
@@ -14,7 +14,8 @@
     "build": "bun build src/cli.ts --outdir dist --target node --packages external",
     "test": "bun test",
     "prepublishOnly": "bun test && bun run build",
-    "start": "bun run src/cli.ts"
+    "start": "bun run src/cli.ts",
+    "release": "bash scripts/publish.sh"
   },
   "keywords": [
     "cursor",

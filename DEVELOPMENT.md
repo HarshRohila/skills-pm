@@ -136,23 +136,26 @@ The build uses `--target node --packages external` so that `gray-matter` (the on
 
 ## Publishing to npm
 
+A single script handles testing, building, version bumping, and publishing:
+
 ```bash
-# 1. Make sure tests pass and build works
-bun test
-bun run build
-node dist/cli.js --help
+bun run release          # bump patch, test, build, publish
+bun run release minor    # bump minor
+bun run release major    # bump major
+```
 
-# 2. Bump version in package.json
-# Edit package.json "version" field, or:
-npm version patch   # 0.1.0 → 0.1.1
-npm version minor   # 0.1.0 → 0.2.0
-npm version major   # 0.1.0 → 1.0.0
+This runs the following steps in order (aborting on any failure):
 
-# 3. Publish (prepublishOnly script runs tests + build automatically)
-npm publish
+1. `bun test`
+2. `bun run build`
+3. `node dist/cli.js --help` (verify the build)
+4. `npm version <patch|minor|major> --no-git-tag-version`
+5. `npm publish`
 
-# 4. Verify it works
-npx skills-pm@latest --help
+After publishing, verify it works:
+
+```bash
+npx @rohilaharsh/skills-pm@latest --help
 ```
 
 Note: The `"files": ["dist"]` field in `package.json` ensures only the built output, `package.json`, `README.md`, and `LICENSE` are included in the published package. Source code and test fixtures are not shipped.
