@@ -43,6 +43,32 @@ describe("addSkill (integration with fixtures)", () => {
     expect(meta.skills["my-skill"]!.source).toBe("test/sample-repo");
   });
 
+  test("succeeds when run again for an already-installed skill", async () => {
+    const projectDir = join(tempDir, "project");
+    const opts: AddOptions = {
+      repoDir: resolve(fixturesDir, "sample-repo"),
+      skillName: "my-skill",
+      targetBase: join(projectDir, ".agents/skills"),
+      metaPath: join(projectDir, ".skills-pm.json"),
+      source: "test/sample-repo",
+      ref: "HEAD",
+    };
+
+    await addSkill(opts);
+    const result = await addSkill(opts);
+
+    expect(result.name).toBe("my-skill");
+
+    // Symlink still valid
+    const linkPath = join(projectDir, ".agents/skills/my-skill");
+    const stats = await lstat(linkPath);
+    expect(stats.isSymbolicLink()).toBe(true);
+
+    // Metadata still present
+    const meta = await readMetadata(join(projectDir, ".skills-pm.json"));
+    expect(meta.skills["my-skill"]).toBeDefined();
+  });
+
   test("throws when skill name is not found", async () => {
     const projectDir = join(tempDir, "project");
     expect(

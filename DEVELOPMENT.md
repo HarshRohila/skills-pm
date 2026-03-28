@@ -85,7 +85,7 @@ skills-pm remove my-skill
 To unlink when done:
 
 ```bash
-bun unlink skills-pm
+bun unlink @rohilaharsh/skills-pm
 ```
 
 ### Method 3: `npm pack` (simulate a real npm install)
@@ -96,11 +96,11 @@ This is the closest to what users will experience. It builds the package, create
 # In the skills-pm directory: build and pack
 bun run build
 npm pack
-# This creates skills-pm-0.1.0.tgz
+# This creates rohilaharsh-skills-pm-0.1.0.tgz
 
 # In another project directory
 cd ~/projects/my-other-repo
-npm install /path/to/skills-pm/skills-pm-0.1.0.tgz
+npm install /path/to/skills-pm/rohilaharsh-skills-pm-0.1.0.tgz
 
 # Now run it via npx (uses the locally installed version)
 npx skills-pm add owner/repo -s my-skill
@@ -111,10 +111,10 @@ Clean up:
 
 ```bash
 # In the other project
-npm uninstall skills-pm
+npm uninstall @rohilaharsh/skills-pm
 
 # In skills-pm directory
-rm skills-pm-*.tgz
+rm rohilaharsh-skills-pm-*.tgz
 ```
 
 ## Building

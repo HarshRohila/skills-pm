@@ -63,6 +63,42 @@ describe("installSkill", () => {
     expect(meta.skills["my-skill"]!.ref).toBe("main");
   });
 
+  test("replaces existing symlink when installing same skill again", async () => {
+    const originalSource = join(tempDir, "source-v1");
+    const updatedSource = join(tempDir, "source-v2");
+    const targetBase = join(tempDir, "target/.agents/skills");
+    const metaPath = join(tempDir, "target/.skills-pm.json");
+
+    await Bun.write(join(originalSource, "SKILL.md"), "# v1");
+    await Bun.write(join(updatedSource, "SKILL.md"), "# v2");
+
+    await installSkill({
+      name: "my-skill",
+      sourceDir: originalSource,
+      targetBase,
+      metaPath,
+      source: "owner/repo",
+      ref: "main",
+    });
+
+    // Install again with a different source dir (simulating re-clone)
+    await installSkill({
+      name: "my-skill",
+      sourceDir: updatedSource,
+      targetBase,
+      metaPath,
+      source: "owner/repo",
+      ref: "main",
+    });
+
+    const symlinkPath = join(targetBase, "my-skill");
+    const stats = await lstat(symlinkPath);
+    expect(stats.isSymbolicLink()).toBe(true);
+
+    const linkTarget = await readlink(symlinkPath);
+    expect(linkTarget).toBe(updatedSource);
+  });
+
   test("creates parent directories if they don't exist", async () => {
     const sourceDir = join(tempDir, "source-skill");
     const targetBase = join(tempDir, "deep/nested/path/.agents/skills");

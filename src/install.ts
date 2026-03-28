@@ -1,4 +1,4 @@
-import { symlink, mkdir } from "fs/promises";
+import { symlink, mkdir, rm, lstat } from "fs/promises";
 import { join } from "path";
 import { writeSkillEntry } from "./metadata.ts";
 
@@ -15,6 +15,14 @@ export async function installSkill(options: InstallOptions): Promise<void> {
   const linkPath = join(options.targetBase, options.name);
 
   await mkdir(options.targetBase, { recursive: true });
+
+  try {
+    const stats = await lstat(linkPath);
+    if (stats.isSymbolicLink()) {
+      await rm(linkPath);
+    }
+  } catch {}
+
   await symlink(options.sourceDir, linkPath);
 
   await writeSkillEntry(options.metaPath, options.name, {
