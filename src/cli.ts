@@ -2,8 +2,8 @@
 
 import { parseArgs } from "util";
 import { parseSource } from "./source-parser.ts";
-import { cloneRepo } from "./git.ts";
-import { addSkill } from "./commands/add.ts";
+import { cloneRepo, getOriginSource } from "./git.ts";
+import { addSkill, addAllSkills } from "./commands/add.ts";
 import { listSkills, type SkillInfo } from "./commands/list.ts";
 import { removeSkill } from "./commands/remove.ts";
 import { publishSkills } from "./commands/publish.ts";
@@ -12,16 +12,18 @@ import { getProjectPaths, getGlobalPaths, getCacheBase } from "./paths.ts";
 const HELP_TEXT = `skills-pm - Cursor Skills Package Manager
 
 Usage:
-  skills-pm add <repo> -s <skill-name> [--ref <branch|SHA>] [-g]
+  skills-pm add [repo] -s <skill-name> [-b <branch|SHA>] [-g]
+  skills-pm add [repo] -a [-b <branch|SHA>] [-g]
   skills-pm list [-g]
   skills-pm remove <skill-name> [-g]
   skills-pm publish -b <branch> [-s <skill-name>] [-m <message>]
 
 Options:
-  -s, --skill <name>   Skill name to install/publish (required for add)
-  -b, --branch <name>  Target branch for publish (required for publish)
+  -s, --skill <name>   Skill name to install/publish
+  -a, --all            Install all skills from the repo
+  -b, --branch <name>  Git ref for add / target branch for publish
   -m, --message <msg>  Commit message for publish
-  --ref <ref>          Git branch, tag, or commit SHA (default: HEAD)
+  --ref <ref>          Alias for -b (default: HEAD)
   -g, --global         Install/list/remove globally (~/.cursor/skills/)
   -h, --help           Show this help message`;
 
@@ -29,6 +31,7 @@ const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
   options: {
     skill: { type: "string", short: "s" },
+    all: { type: "boolean", short: "a", default: false },
     branch: { type: "string", short: "b" },
     message: { type: "string", short: "m" },
     ref: { type: "string" },
@@ -53,20 +56,21 @@ function formatSkillLine(s: SkillInfo): string {
 
 async function handleAdd() {
   const repoArg = positionals[1];
-  if (!repoArg) {
-    console.error("Error: repository is required. Usage: skills-pm add <owner/repo> -s <skill-name>");
+
+  if (!values.skill && !values.all) {
+    console.error("Error: --skill (-s) or --all (-a) is required. Usage: skills-pm add [owner/repo] -s <skill-name>");
+    process.exit(1);
+  }
+  if (values.skill && values.all) {
+    console.error("Error: --skill (-s) and --all (-a) cannot be used together.");
     process.exit(1);
   }
 
-  const skillName = values.skill;
-  if (!skillName) {
-    console.error("Error: --skill (-s) is required. Usage: skills-pm add <owner/repo> -s <skill-name>");
-    process.exit(1);
-  }
-
-  const source = parseSource(repoArg);
+  const source = repoArg
+    ? parseSource(repoArg)
+    : await getOriginSource(process.cwd());
   const sourceStr = `${source.owner}/${source.repo}`;
-  const ref = values.ref;
+  const ref = values.ref ?? values.branch;
 
   const refLabel = ref ? ` (ref: ${ref})` : "";
   console.log(`Cloning ${sourceStr}${refLabel}...`);
@@ -78,16 +82,29 @@ async function handleAdd() {
 
   const paths = values.global ? getGlobalPaths() : getProjectPaths(process.cwd());
 
-  const result = await addSkill({
-    repoDir,
-    skillName,
-    targetBase: paths.targetBase,
-    metaPath: paths.metaPath,
-    source: sourceStr,
-    ref: ref ?? "HEAD",
-  });
-
-  console.log(`Installed "${result.name}" to ${result.installedTo}`);
+  if (values.all) {
+    const results = await addAllSkills({
+      repoDir,
+      targetBase: paths.targetBase,
+      metaPath: paths.metaPath,
+      source: sourceStr,
+      ref: ref ?? "HEAD",
+    });
+    console.log(`Installed ${results.length} skill(s) to ${paths.targetBase}:`);
+    for (const r of results) {
+      console.log(`  ${r.name}`);
+    }
+  } else {
+    const result = await addSkill({
+      repoDir,
+      skillName: values.skill!,
+      targetBase: paths.targetBase,
+      metaPath: paths.metaPath,
+      source: sourceStr,
+      ref: ref ?? "HEAD",
+    });
+    console.log(`Installed "${result.name}" to ${result.installedTo}`);
+  }
 }
 
 async function handleList() {

@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { addSkill, type AddOptions } from "./add.ts";
+import { addSkill, addAllSkills, type AddOptions } from "./add.ts";
 import { readMetadata } from "../metadata.ts";
 import { join } from "path";
 import { mkdtemp, rm, lstat, readlink } from "fs/promises";
@@ -89,6 +89,48 @@ describe("addSkill (integration with fixtures)", () => {
       addSkill({
         repoDir: resolve(fixturesDir, "empty-repo"),
         skillName: "anything",
+        targetBase: join(projectDir, ".agents/skills"),
+        metaPath: join(projectDir, ".skills-pm.json"),
+        source: "test/empty-repo",
+        ref: "HEAD",
+      })
+    ).rejects.toThrow("No skills found");
+  });
+});
+
+describe("addAllSkills", () => {
+  test("installs all discovered skills from a repo", async () => {
+    const projectDir = join(tempDir, "project");
+    const results = await addAllSkills({
+      repoDir: resolve(fixturesDir, "sample-repo"),
+      targetBase: join(projectDir, ".agents/skills"),
+      metaPath: join(projectDir, ".skills-pm.json"),
+      source: "test/sample-repo",
+      ref: "HEAD",
+    });
+
+    const names = results.map((r) => r.name).sort();
+    expect(names).toEqual(["claude-skill", "curated-skill", "my-skill"]);
+
+    for (const result of results) {
+      const linkPath = join(projectDir, ".agents/skills", result.name);
+      const stats = await lstat(linkPath);
+      expect(stats.isSymbolicLink()).toBe(true);
+    }
+
+    const meta = await readMetadata(join(projectDir, ".skills-pm.json"));
+    expect(Object.keys(meta.skills).sort()).toEqual([
+      "claude-skill",
+      "curated-skill",
+      "my-skill",
+    ]);
+  });
+
+  test("throws when no skills found in repo", async () => {
+    const projectDir = join(tempDir, "project");
+    expect(
+      addAllSkills({
+        repoDir: resolve(fixturesDir, "empty-repo"),
         targetBase: join(projectDir, ".agents/skills"),
         metaPath: join(projectDir, ".skills-pm.json"),
         source: "test/empty-repo",

@@ -29,20 +29,28 @@ skills-pm add vercel-labs/agent-skills -s frontend-design
 # From a full GitHub URL
 skills-pm add https://github.com/vercel-labs/agent-skills -s frontend-design
 
-# From a specific branch
-skills-pm add owner/repo -s my-skill --ref develop
+# From the current repo's origin remote (repo argument is optional)
+skills-pm add -s my-skill
+
+# From a specific branch (-b or --ref)
+skills-pm add owner/repo -s my-skill -b develop
 
 # From a specific tag
-skills-pm add owner/repo -s my-skill --ref v1.2.0
+skills-pm add owner/repo -s my-skill -b v1.2.0
 
 # From a specific commit SHA
 skills-pm add owner/repo -s my-skill --ref abc123f
+
+# Install all skills from a repo
+skills-pm add owner/repo -a
 
 # Install globally (available across all projects)
 skills-pm add owner/repo -s my-skill -g
 ```
 
-The `-s` (or `--skill`) flag is required. You must specify the skill name to install.
+Either `-s` (a specific skill) or `-a` (all skills) is required.
+
+When the repo argument is omitted, `skills-pm` reads the `origin` remote of the current git repository. If no origin is found, it prints a message telling you to specify the repo explicitly.
 
 ### Private repositories
 
@@ -93,12 +101,12 @@ skills-pm publish -b skills -s my-skill
 skills-pm publish -b skills -m "Release v1.0 skills"
 ```
 
-This creates (or updates) the target branch with your skills organized under `skills/<name>/`. The branch has its own independent history and your working directory is never modified.
+This creates (or updates) the target branch with your skills organized under `skills/<name>/` and force-pushes it to the remote. The branch has its own independent history and your working directory is never modified.
 
 Once published, others can install directly from that branch:
 
 ```bash
-skills-pm add owner/repo -s my-skill --ref skills
+skills-pm add owner/repo -s my-skill -b skills
 ```
 
 ## How it works
@@ -142,10 +150,11 @@ Instructions for the agent...
 
 | Option | Description |
 |--------|-------------|
-| `-s, --skill <name>` | Skill name to install or publish (required for `add`) |
-| `-b, --branch <name>` | Target branch (required for `publish`) |
+| `-s, --skill <name>` | Skill name to install or publish |
+| `-a, --all` | Install all skills from the repo (for `add`) |
+| `-b, --branch <name>` | Git ref for `add` / target branch for `publish` |
 | `-m, --message <msg>` | Commit message (for `publish`) |
-| `--ref <ref>` | Git branch, tag, or commit SHA (default: default branch) |
+| `--ref <ref>` | Alias for `-b` (default: HEAD) |
 | `-g, --global` | Use global scope instead of project |
 | `-h, --help` | Show help message |
 
@@ -162,7 +171,7 @@ bun test
 bun run build
 
 # Run from source
-bun run src/cli.ts add owner/repo -s skill-name
+bun run src/cli.ts add owner/repo -s skill-name -b main
 
 # Run the built version
 node dist/cli.js add owner/repo -s skill-name

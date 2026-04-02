@@ -19,10 +19,19 @@ interface SkillFixture {
   extraFiles?: Record<string, string>;
 }
 
+async function createBareRemote(bareDir: string, repoDir: string): Promise<void> {
+  await git(["init", "--bare"], bareDir);
+  await git(["remote", "add", "origin", bareDir], repoDir);
+  await git(["push", "origin", "HEAD"], repoDir);
+}
+
 async function createTestRepo(
   dir: string,
   skills: Record<string, SkillFixture>
-): Promise<void> {
+): Promise<string> {
+  const bareDir = dir + "-bare";
+  await mkdir(bareDir, { recursive: true });
+
   await git(["init"], dir);
   await git(["config", "user.email", "test@test.com"], dir);
   await git(["config", "user.name", "Test"], dir);
@@ -44,6 +53,9 @@ async function createTestRepo(
   await writeFile(join(dir, "README.md"), "# Test Repo");
   await git(["add", "."], dir);
   await git(["commit", "-m", "initial commit"], dir);
+  await createBareRemote(bareDir, dir);
+
+  return bareDir;
 }
 
 let tempDir: string;
@@ -190,13 +202,16 @@ describe("publishSkills", () => {
 
   test("throws when no skills are found", async () => {
     const repoDir = join(tempDir, "repo");
+    const bareDir = join(tempDir, "repo-bare");
     await mkdir(repoDir);
+    await mkdir(bareDir);
     await git(["init"], repoDir);
     await git(["config", "user.email", "test@test.com"], repoDir);
     await git(["config", "user.name", "Test"], repoDir);
     await writeFile(join(repoDir, "README.md"), "# Empty");
     await git(["add", "."], repoDir);
     await git(["commit", "-m", "initial"], repoDir);
+    await createBareRemote(bareDir, repoDir);
 
     expect(
       publishSkills({ projectDir: repoDir, branch: "published-skills" })
@@ -237,6 +252,60 @@ describe("publishSkills", () => {
       repoDir
     );
     expect(log).toBe("Custom publish message");
+  });
+
+  test("pushes the published branch to the remote", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    const bareDir = await createTestRepo(repoDir, {
+      "my-skill": { description: "Test", content: "# Test" },
+    });
+
+    const result = await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    const remoteCommit = await git(
+      ["rev-parse", "published-skills"],
+      bareDir
+    );
+    expect(remoteCommit).toBe(result.commitSha);
+
+    const content = await git(
+      ["show", "published-skills:skills/my-skill/SKILL.md"],
+      bareDir
+    );
+    expect(content).toContain("name: my-skill");
+  });
+
+  test("force-pushes updated branch to the remote", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    const bareDir = await createTestRepo(repoDir, {
+      "my-skill": { description: "Original", content: "# Original" },
+    });
+
+    await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    await writeFile(
+      join(repoDir, "skills/my-skill/SKILL.md"),
+      "---\nname: my-skill\ndescription: Updated\n---\n\n# Updated\n"
+    );
+
+    const result = await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    const remoteCommit = await git(
+      ["rev-parse", "published-skills"],
+      bareDir
+    );
+    expect(remoteCommit).toBe(result.commitSha);
   });
 
   test("does not affect the current working branch", async () => {

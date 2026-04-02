@@ -1,8 +1,9 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { cloneRepo, type CloneOptions } from "./git.ts";
+import { cloneRepo, getOriginSource, type CloneOptions } from "./git.ts";
 import { join } from "path";
 import { mkdtemp, rm, readdir, stat } from "fs/promises";
 import { tmpdir } from "os";
+import { execFileSync } from "child_process";
 
 let tempDir: string;
 
@@ -68,4 +69,54 @@ describe("cloneRepo", () => {
       )
     ).rejects.toThrow();
   }, 30_000);
+});
+
+function initRepoWithOrigin(dir: string, originUrl: string) {
+  execFileSync("git", ["init", dir]);
+  execFileSync("git", ["remote", "add", "origin", originUrl], { cwd: dir });
+}
+
+describe("getOriginSource", () => {
+  test("parses HTTPS remote URL", async () => {
+    initRepoWithOrigin(
+      join(tempDir, "repo"),
+      "https://github.com/acme/cool-skills.git"
+    );
+    const source = await getOriginSource(join(tempDir, "repo"));
+    expect(source).toEqual({ owner: "acme", repo: "cool-skills" });
+  });
+
+  test("parses HTTPS remote URL without .git suffix", async () => {
+    initRepoWithOrigin(
+      join(tempDir, "repo"),
+      "https://github.com/acme/cool-skills"
+    );
+    const source = await getOriginSource(join(tempDir, "repo"));
+    expect(source).toEqual({ owner: "acme", repo: "cool-skills" });
+  });
+
+  test("parses SSH remote URL", async () => {
+    initRepoWithOrigin(
+      join(tempDir, "repo"),
+      "git@github.com:acme/cool-skills.git"
+    );
+    const source = await getOriginSource(join(tempDir, "repo"));
+    expect(source).toEqual({ owner: "acme", repo: "cool-skills" });
+  });
+
+  test("throws with helpful message when not in a git repo", async () => {
+    const nonGitDir = join(tempDir, "not-a-repo");
+    await Bun.write(join(nonGitDir, "file.txt"), "hi");
+    expect(getOriginSource(nonGitDir)).rejects.toThrow(
+      /No git remote 'origin' found/
+    );
+  });
+
+  test("throws with helpful message when repo has no origin remote", async () => {
+    const dir = join(tempDir, "no-origin");
+    execFileSync("git", ["init", dir]);
+    expect(getOriginSource(dir)).rejects.toThrow(
+      /No git remote 'origin' found/
+    );
+  });
 });

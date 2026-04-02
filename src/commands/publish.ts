@@ -160,6 +160,11 @@ export async function publishSkills(
     projectDir
   );
 
+  await execGit(
+    ["push", "origin", branch, "--force", "--no-verify"],
+    projectDir
+  );
+
   return {
     branch,
     skills: selected.map((s) => s.name),
