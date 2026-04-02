@@ -6,6 +6,7 @@ import { cloneRepo } from "./git.ts";
 import { addSkill } from "./commands/add.ts";
 import { listSkills, type SkillInfo } from "./commands/list.ts";
 import { removeSkill } from "./commands/remove.ts";
+import { publishSkills } from "./commands/publish.ts";
 import { getProjectPaths, getGlobalPaths, getCacheBase } from "./paths.ts";
 
 const HELP_TEXT = `skills-pm - Cursor Skills Package Manager
@@ -14,9 +15,12 @@ Usage:
   skills-pm add <repo> -s <skill-name> [--ref <branch|SHA>] [-g]
   skills-pm list [-g]
   skills-pm remove <skill-name> [-g]
+  skills-pm publish -b <branch> [-s <skill-name>] [-m <message>]
 
 Options:
-  -s, --skill <name>   Skill name to install (required for add)
+  -s, --skill <name>   Skill name to install/publish (required for add)
+  -b, --branch <name>  Target branch for publish (required for publish)
+  -m, --message <msg>  Commit message for publish
   --ref <ref>          Git branch, tag, or commit SHA (default: HEAD)
   -g, --global         Install/list/remove globally (~/.cursor/skills/)
   -h, --help           Show this help message`;
@@ -25,6 +29,8 @@ const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
   options: {
     skill: { type: "string", short: "s" },
+    branch: { type: "string", short: "b" },
+    message: { type: "string", short: "m" },
     ref: { type: "string" },
     global: { type: "boolean", short: "g", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -125,12 +131,39 @@ async function handleRemove() {
   console.log(`Removed "${skillName}"`);
 }
 
+async function handlePublish() {
+  const branch = values.branch;
+  if (!branch) {
+    console.error(
+      "Error: --branch (-b) is required. Usage: skills-pm publish -b <branch> [-s <skill-name>]"
+    );
+    process.exit(1);
+  }
+
+  const skillFilter = values.skill;
+  const filterLabel = skillFilter ? ` (skill: ${skillFilter})` : "";
+  console.log(`Publishing skills to branch "${branch}"${filterLabel}...`);
+
+  const result = await publishSkills({
+    projectDir: process.cwd(),
+    branch,
+    skillName: skillFilter,
+    message: values.message,
+  });
+
+  console.log(
+    `Published ${result.skills.length} skill(s) to branch "${result.branch}": ${result.skills.join(", ")}`
+  );
+  console.log(`Commit: ${result.commitSha}`);
+}
+
 const commands: Record<string, () => Promise<void>> = {
   add: handleAdd,
   list: handleList,
   ls: handleList,
   remove: handleRemove,
   rm: handleRemove,
+  publish: handlePublish,
 };
 
 const handler = commands[command];

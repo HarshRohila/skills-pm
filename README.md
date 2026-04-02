@@ -78,6 +78,29 @@ skills-pm remove my-skill -g
 skills-pm rm my-skill
 ```
 
+### Publish skills to a branch
+
+Share your project's skills by publishing them to a dedicated branch. Others can then install them with `skills-pm add`.
+
+```bash
+# Publish all discovered skills to a branch
+skills-pm publish -b skills
+
+# Publish a single skill
+skills-pm publish -b skills -s my-skill
+
+# With a custom commit message
+skills-pm publish -b skills -m "Release v1.0 skills"
+```
+
+This creates (or updates) the target branch with your skills organized under `skills/<name>/`. The branch has its own independent history and your working directory is never modified.
+
+Once published, others can install directly from that branch:
+
+```bash
+skills-pm add owner/repo -s my-skill --ref skills
+```
+
 ## How it works
 
 1. **Clone** — The repository is shallow-cloned into `~/.cache/skills-pm/<owner>/<repo>/<ref>/`
@@ -119,7 +142,9 @@ Instructions for the agent...
 
 | Option | Description |
 |--------|-------------|
-| `-s, --skill <name>` | Skill name to install (required for `add`) |
+| `-s, --skill <name>` | Skill name to install or publish (required for `add`) |
+| `-b, --branch <name>` | Target branch (required for `publish`) |
+| `-m, --message <msg>` | Commit message (for `publish`) |
 | `--ref <ref>` | Git branch, tag, or commit SHA (default: default branch) |
 | `-g, --global` | Use global scope instead of project |
 | `-h, --help` | Show help message |
