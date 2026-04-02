@@ -1,12 +1,15 @@
 import type { ParsedSource } from "./source-parser.ts";
 import { join } from "path";
-import { stat } from "fs/promises";
+import { rm, stat } from "fs/promises";
 import { execFile } from "child_process";
 
 export interface CloneOptions {
   cacheBase: string;
   ref?: string;
+  url?: string;
 }
+
+const SHA_RE = /^[0-9a-f]{40}$/;
 
 function execGit(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -26,12 +29,22 @@ export async function cloneRepo(
 ): Promise<string> {
   const refLabel = options.ref ?? "HEAD";
   const destDir = join(options.cacheBase, source.owner, source.repo, refLabel);
+  const url = options.url ?? `https://github.com/${source.owner}/${source.repo}.git`;
 
   if (await dirExists(destDir)) {
-    return destDir;
-  }
+    if (options.ref && SHA_RE.test(options.ref)) {
+      return destDir;
+    }
 
-  const url = `https://github.com/${source.owner}/${source.repo}.git`;
+    try {
+      const fetchRef = options.ref ?? "HEAD";
+      await execGit(["fetch", "--depth", "1", "origin", fetchRef], destDir);
+      await execGit(["reset", "--hard", "FETCH_HEAD"], destDir);
+      return destDir;
+    } catch {
+      await rm(destDir, { recursive: true, force: true });
+    }
+  }
 
   const cloneArgs = ["clone", "--depth", "1"];
   if (options.ref) {

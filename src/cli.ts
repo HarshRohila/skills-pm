@@ -7,7 +7,9 @@ import { addSkill, addAllSkills } from "./commands/add.ts";
 import { listSkills, type SkillInfo } from "./commands/list.ts";
 import { removeSkill } from "./commands/remove.ts";
 import { publishSkills } from "./commands/publish.ts";
+import { editSkill } from "./commands/edit.ts";
 import { getProjectPaths, getGlobalPaths, getCacheBase } from "./paths.ts";
+import { join } from "path";
 
 const HELP_TEXT = `skills-pm - Cursor Skills Package Manager
 
@@ -16,6 +18,7 @@ Usage:
   skills-pm add [repo] -a [-b <branch|SHA>] [-g]
   skills-pm list [-g]
   skills-pm remove <skill-name> [-g]
+  skills-pm edit <skill-name> [-g]
   skills-pm publish -b <branch> [-s <skill-name>] [-m <message>]
 
 Options:
@@ -174,12 +177,32 @@ async function handlePublish() {
   console.log(`Commit: ${result.commitSha}`);
 }
 
+async function handleEdit() {
+  const skillName = positionals[1];
+  if (!skillName) {
+    console.error("Error: skill name is required. Usage: skills-pm edit <skill-name>");
+    process.exit(1);
+  }
+
+  const paths = values.global ? getGlobalPaths() : getProjectPaths(process.cwd());
+
+  const result = await editSkill({
+    skillName,
+    metaPath: paths.metaPath,
+    destBase: join(process.cwd(), "skills"),
+  });
+
+  console.log(`Copied "${result.name}" to ${result.copiedTo}`);
+  console.log(`Edit the skill, then publish with: skills-pm publish -b <branch>`);
+}
+
 const commands: Record<string, () => Promise<void>> = {
   add: handleAdd,
   list: handleList,
   ls: handleList,
   remove: handleRemove,
   rm: handleRemove,
+  edit: handleEdit,
   publish: handlePublish,
 };
 

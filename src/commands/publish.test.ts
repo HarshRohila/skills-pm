@@ -308,6 +308,76 @@ describe("publishSkills", () => {
     expect(remoteCommit).toBe(result.commitSha);
   });
 
+  test("preserves existing skills when publishing a single skill to an existing branch", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    await createTestRepo(repoDir, {
+      "skill-a": { description: "Skill A", content: "# Skill A" },
+      "skill-b": { description: "Skill B", content: "# Skill B" },
+    });
+
+    await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+      skillName: "skill-a",
+    });
+
+    await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+      skillName: "skill-b",
+    });
+
+    const skillA = await git(
+      ["show", "published-skills:skills/skill-a/SKILL.md"],
+      repoDir
+    );
+    expect(skillA).toContain("name: skill-a");
+
+    const skillB = await git(
+      ["show", "published-skills:skills/skill-b/SKILL.md"],
+      repoDir
+    );
+    expect(skillB).toContain("name: skill-b");
+  });
+
+  test("updates a skill while preserving others on the branch", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    await createTestRepo(repoDir, {
+      "skill-a": { description: "Skill A", content: "# Skill A" },
+      "skill-b": { description: "Skill B", content: "# Skill B" },
+    });
+
+    await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    await writeFile(
+      join(repoDir, "skills/skill-a/SKILL.md"),
+      "---\nname: skill-a\ndescription: Skill A Updated\n---\n\n# Skill A Updated\n"
+    );
+
+    await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+      skillName: "skill-a",
+    });
+
+    const skillA = await git(
+      ["show", "published-skills:skills/skill-a/SKILL.md"],
+      repoDir
+    );
+    expect(skillA).toContain("Skill A Updated");
+
+    const skillB = await git(
+      ["show", "published-skills:skills/skill-b/SKILL.md"],
+      repoDir
+    );
+    expect(skillB).toContain("name: skill-b");
+  });
+
   test("does not affect the current working branch", async () => {
     const repoDir = join(tempDir, "repo");
     await mkdir(repoDir);

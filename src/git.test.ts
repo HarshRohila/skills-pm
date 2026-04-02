@@ -1,9 +1,13 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { cloneRepo, getOriginSource, type CloneOptions } from "./git.ts";
 import { join } from "path";
-import { mkdtemp, rm, readdir, stat } from "fs/promises";
+import { mkdtemp, rm, readdir, stat, readFile, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 let tempDir: string;
 
@@ -69,6 +73,116 @@ describe("cloneRepo", () => {
       )
     ).rejects.toThrow();
   }, 30_000);
+});
+
+async function gitAsync(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout.trim();
+}
+
+async function createLocalRemoteWithBranch(
+  bareDir: string,
+  branch: string,
+  fileContent: string
+): Promise<void> {
+  const workDir = bareDir + "-work";
+  await mkdir(bareDir, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await gitAsync(["init", "--bare"], bareDir);
+  await gitAsync(["clone", bareDir, workDir], bareDir);
+  await gitAsync(["config", "user.email", "test@test.com"], workDir);
+  await gitAsync(["config", "user.name", "Test"], workDir);
+  await gitAsync(["checkout", "-b", branch], workDir);
+  await writeFile(join(workDir, "data.txt"), fileContent);
+  await gitAsync(["add", "."], workDir);
+  await gitAsync(["commit", "-m", "initial"], workDir);
+  await gitAsync(["push", "origin", branch], workDir);
+  await rm(workDir, { recursive: true, force: true });
+}
+
+async function pushUpdateToBranch(
+  bareDir: string,
+  branch: string,
+  fileContent: string
+): Promise<void> {
+  const workDir = bareDir + "-work2";
+  await mkdir(workDir, { recursive: true });
+  await gitAsync(["clone", "-b", branch, bareDir, workDir], bareDir);
+  await gitAsync(["config", "user.email", "test@test.com"], workDir);
+  await gitAsync(["config", "user.name", "Test"], workDir);
+  await writeFile(join(workDir, "data.txt"), fileContent);
+  await gitAsync(["add", "."], workDir);
+  await gitAsync(["commit", "-m", "update"], workDir);
+  await gitAsync(["push", "origin", branch], workDir);
+  await rm(workDir, { recursive: true, force: true });
+}
+
+describe("cloneRepo cache refresh", () => {
+  test("fetches latest when branch has new commits", async () => {
+    const bareDir = join(tempDir, "bare-repo");
+    const cacheDir = join(tempDir, "cache");
+
+    await createLocalRemoteWithBranch(bareDir, "mybranch", "version-1");
+
+    const source = { owner: "local", repo: "test" };
+    const result = await cloneRepo(source, {
+      cacheBase: cacheDir,
+      ref: "mybranch",
+      url: bareDir,
+    });
+
+    const content1 = await readFile(join(result, "data.txt"), "utf-8");
+    expect(content1).toBe("version-1");
+
+    await pushUpdateToBranch(bareDir, "mybranch", "version-2");
+
+    const result2 = await cloneRepo(source, {
+      cacheBase: cacheDir,
+      ref: "mybranch",
+      url: bareDir,
+    });
+
+    expect(result2).toBe(result);
+    const content2 = await readFile(join(result2, "data.txt"), "utf-8");
+    expect(content2).toBe("version-2");
+  });
+
+  test("does not re-fetch for full SHA refs", async () => {
+    const bareDir = join(tempDir, "bare-repo");
+    const cacheDir = join(tempDir, "cache");
+
+    await createLocalRemoteWithBranch(bareDir, "main", "immutable");
+
+    const source = { owner: "local", repo: "test-sha" };
+    const result = await cloneRepo(source, {
+      cacheBase: cacheDir,
+      ref: "main",
+      url: bareDir,
+    });
+
+    const sha = await gitAsync(["rev-parse", "HEAD"], result);
+
+    // Manually create a cache dir keyed by the SHA with a marker file
+    const shaDir = join(cacheDir, "local", "test-sha", sha);
+    await mkdir(shaDir, { recursive: true });
+    await gitAsync(["clone", bareDir, shaDir + "-tmp"], bareDir);
+    // Use a real git repo at the SHA path
+    await rm(shaDir, { recursive: true, force: true });
+    await gitAsync(["clone", "-b", "main", bareDir, shaDir], bareDir);
+    await writeFile(join(shaDir, "marker.txt"), "original");
+
+    await pushUpdateToBranch(bareDir, "main", "updated-content");
+
+    const result2 = await cloneRepo(source, {
+      cacheBase: cacheDir,
+      ref: sha,
+      url: bareDir,
+    });
+
+    expect(result2).toBe(shaDir);
+    const marker = await readFile(join(result2, "marker.txt"), "utf-8");
+    expect(marker).toBe("original");
+  });
 });
 
 function initRepoWithOrigin(dir: string, originUrl: string) {

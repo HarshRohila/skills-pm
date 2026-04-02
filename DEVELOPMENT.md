@@ -21,6 +21,7 @@ skills-pm/
     paths.ts                Project and global path helpers
     commands/
       add.ts                Orchestrates clone → discover → filter → install
+      edit.ts               Copies installed skill to ./skills/ for local editing
       list.ts               Reads metadata and returns installed skills
       remove.ts             Removes symlinks and metadata entries
     *.test.ts               Co-located test files (bun:test)

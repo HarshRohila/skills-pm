@@ -119,24 +119,6 @@ export async function publishSkills(
     }
   }
 
-  const skillEntries: string[] = [];
-  for (const skill of selected) {
-    const sha = await buildTreeSha(projectDir, skill.dir);
-    skillEntries.push(`040000 tree ${sha}\t${skill.name}`);
-  }
-
-  const skillsDirSha = await execGitWithStdin(
-    ["mktree"],
-    projectDir,
-    skillEntries.join("\n") + "\n"
-  );
-
-  const rootSha = await execGitWithStdin(
-    ["mktree"],
-    projectDir,
-    `040000 tree ${skillsDirSha}\tskills\n`
-  );
-
   let parentSha: string | null = null;
   try {
     parentSha = await execGit(
@@ -146,6 +128,42 @@ export async function publishSkills(
   } catch {
     // branch doesn't exist yet — orphan commit
   }
+
+  const existingEntries = new Map<string, string>();
+  if (parentSha && skillName) {
+    try {
+      const treeOutput = await execGit(
+        ["ls-tree", `${parentSha}:skills`],
+        projectDir
+      );
+      for (const line of treeOutput.split("\n")) {
+        if (!line) continue;
+        const tabIdx = line.indexOf("\t");
+        const name = line.slice(tabIdx + 1);
+        const meta = line.slice(0, tabIdx);
+        existingEntries.set(name, `${meta}\t${name}`);
+      }
+    } catch {
+      // no skills/ tree on the branch yet
+    }
+  }
+
+  for (const skill of selected) {
+    const sha = await buildTreeSha(projectDir, skill.dir);
+    existingEntries.set(skill.name, `040000 tree ${sha}\t${skill.name}`);
+  }
+
+  const skillsDirSha = await execGitWithStdin(
+    ["mktree"],
+    projectDir,
+    [...existingEntries.values()].join("\n") + "\n"
+  );
+
+  const rootSha = await execGitWithStdin(
+    ["mktree"],
+    projectDir,
+    `040000 tree ${skillsDirSha}\tskills\n`
+  );
 
   const commitMsg =
     message ?? `Publish skills: ${selected.map((s) => s.name).join(", ")}`;

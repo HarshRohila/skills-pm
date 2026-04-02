@@ -86,6 +86,24 @@ skills-pm remove my-skill -g
 skills-pm rm my-skill
 ```
 
+### Edit a skill locally
+
+Copy an installed skill into your project for editing and republishing.
+
+```bash
+# Copy a project-installed skill into ./skills/<name>/
+skills-pm edit my-skill
+
+# Copy a globally-installed skill
+skills-pm edit my-skill -g
+```
+
+The skill files are copied to `./skills/<name>/` in your current directory. From there you can edit the files and publish when ready:
+
+```bash
+skills-pm publish -b skills
+```
+
 ### Publish skills to a branch
 
 Share your project's skills by publishing them to a dedicated branch. Others can then install them with `skills-pm add`.
@@ -116,6 +134,8 @@ skills-pm add owner/repo -s my-skill -b skills
 3. **Filter** — The skill matching the `-s` name is selected
 4. **Symlink** — The skill directory is symlinked into the target location
 5. **Record** — Metadata is written to track installed skills
+
+For editing, `skills-pm edit` copies an installed skill from the cache into `./skills/<name>/` so you can modify it locally and republish with `skills-pm publish`.
 
 ### Installation paths
 
