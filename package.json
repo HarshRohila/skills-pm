@@ -1,6 +1,6 @@
 {
   "name": "@rohilaharsh/skills-pm",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A package manager for Cursor agent skills. Install skills from public or private GitHub repositories.",
   "type": "module",
   "main": "dist/cli.js",
