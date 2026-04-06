@@ -28,7 +28,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/user/skills-pm"
+    "url": "https://github.com/HarshRohila/skills-pm"
   },
   "devDependencies": {
     "@types/bun": "latest"
