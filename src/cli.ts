@@ -8,10 +8,17 @@ import { listSkills, type SkillInfo } from "./commands/list.ts";
 import { removeSkill } from "./commands/remove.ts";
 import { publishSkills } from "./commands/publish.ts";
 import { editSkill } from "./commands/edit.ts";
-import { getProjectPaths, getGlobalPaths, getCacheBase } from "./paths.ts";
+import {
+  getProjectPaths,
+  getGlobalPaths,
+  getCacheBase,
+  getGlobalInstallBases,
+  getProjectInstallBases,
+} from "./paths.ts";
+import { reconcileFromMetadata } from "./reconcile.ts";
 import { join } from "path";
 
-const HELP_TEXT = `skills-pm - Cursor Skills Package Manager
+const HELP_TEXT = `skills-pm - Skills Package Manager (Cursor + Claude Code)
 
 Usage:
   skills-pm add [repo] -s <skill-name> [-b <branch|SHA>] [-g]
@@ -19,6 +26,7 @@ Usage:
   skills-pm list [-g]
   skills-pm remove <skill-name> [-g]
   skills-pm edit <skill-name> [-g]
+  skills-pm sync [-g]
   skills-pm publish -b <branch> [-s <skill-name>] [-m <message>]
 
 Options:
@@ -27,8 +35,13 @@ Options:
   -b, --branch <name>  Git ref for add / target branch for publish
   -m, --message <msg>  Commit message for publish
   --ref <ref>          Alias for -b (default: HEAD)
-  -g, --global         Install/list/remove globally (~/.cursor/skills/)
-  -h, --help           Show this help message`;
+  -g, --global         Install/list/remove globally (~/.cursor/skills + ~/.claude/skills)
+  -v, --verbose        Log reconcile actions
+  -h, --help           Show this help message
+
+Installs are symlinked into both Cursor and Claude Code paths so the same skill
+works in either agent. Project: .agents/skills + .claude/skills. Global:
+~/.cursor/skills + ~/.claude/skills.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -39,6 +52,7 @@ const { values, positionals } = parseArgs({
     message: { type: "string", short: "m" },
     ref: { type: "string" },
     global: { type: "boolean", short: "g", default: false },
+    verbose: { type: "boolean", short: "v", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
   allowPositionals: true,
@@ -57,6 +71,46 @@ function formatSkillLine(s: SkillInfo): string {
   return `  ${s.name} (${s.source}${refSuffix})`;
 }
 
+async function reconcileQuiet(
+  metaPath: string,
+  bases: string[],
+  verbose: boolean
+): Promise<void> {
+  try {
+    const result = await reconcileFromMetadata(metaPath, bases);
+    if (verbose || result.created.length > 0) {
+      for (const c of result.created) {
+        console.log(`reconcile: linked ${c.name} → ${c.base}`);
+      }
+    }
+    if (verbose) {
+      for (const s of result.skipped) {
+        console.log(`reconcile: skipped ${s.name} (${s.reason})`);
+      }
+    }
+  } catch (err) {
+    if (verbose) {
+      console.error(`reconcile: ${(err as Error).message}`);
+    }
+  }
+}
+
+async function reconcileScope(global: boolean): Promise<void> {
+  if (global) {
+    await reconcileQuiet(
+      getGlobalPaths().metaPath,
+      getGlobalInstallBases(),
+      values.verbose ?? false
+    );
+  } else {
+    await reconcileQuiet(
+      getProjectPaths(process.cwd()).metaPath,
+      getProjectInstallBases(process.cwd()),
+      values.verbose ?? false
+    );
+  }
+}
+
 async function handleAdd() {
   const repoArg = positionals[1];
 
@@ -68,6 +122,8 @@ async function handleAdd() {
     console.error("Error: --skill (-s) and --all (-a) cannot be used together.");
     process.exit(1);
   }
+
+  await reconcileScope(values.global);
 
   const source = repoArg
     ? parseSource(repoArg)
@@ -88,12 +144,14 @@ async function handleAdd() {
   if (values.all) {
     const results = await addAllSkills({
       repoDir,
-      targetBase: paths.targetBase,
+      targetBases: paths.targetBases,
       metaPath: paths.metaPath,
       source: sourceStr,
       ref: ref ?? "HEAD",
     });
-    console.log(`Installed ${results.length} skill(s) to ${paths.targetBase}:`);
+    console.log(
+      `Installed ${results.length} skill(s) into:\n  ${paths.targetBases.join("\n  ")}`
+    );
     for (const r of results) {
       console.log(`  ${r.name}`);
     }
@@ -101,16 +159,31 @@ async function handleAdd() {
     const result = await addSkill({
       repoDir,
       skillName: values.skill!,
-      targetBase: paths.targetBase,
+      targetBases: paths.targetBases,
       metaPath: paths.metaPath,
       source: sourceStr,
       ref: ref ?? "HEAD",
     });
-    console.log(`Installed "${result.name}" to ${result.installedTo}`);
+    console.log(
+      `Installed "${result.name}" into:\n  ${result.installedTo.join("\n  ")}`
+    );
   }
 }
 
 async function handleList() {
+  await reconcileQuiet(
+    getGlobalPaths().metaPath,
+    getGlobalInstallBases(),
+    values.verbose ?? false
+  );
+  if (!values.global) {
+    await reconcileQuiet(
+      getProjectPaths(process.cwd()).metaPath,
+      getProjectInstallBases(process.cwd()),
+      values.verbose ?? false
+    );
+  }
+
   const result = await listSkills({
     projectMetaPath: getProjectPaths(process.cwd()).metaPath,
     globalMetaPath: getGlobalPaths().metaPath,
@@ -140,11 +213,13 @@ async function handleRemove() {
     process.exit(1);
   }
 
+  await reconcileScope(values.global);
+
   const paths = values.global ? getGlobalPaths() : getProjectPaths(process.cwd());
 
   await removeSkill({
     name: skillName,
-    targetBase: paths.targetBase,
+    targetBases: paths.targetBases,
     metaPath: paths.metaPath,
   });
 
@@ -184,6 +259,8 @@ async function handleEdit() {
     process.exit(1);
   }
 
+  await reconcileScope(values.global);
+
   const paths = values.global ? getGlobalPaths() : getProjectPaths(process.cwd());
 
   const result = await editSkill({
@@ -196,6 +273,43 @@ async function handleEdit() {
   console.log(`Edit the skill, then publish with: skills-pm publish -b <branch>`);
 }
 
+async function handleSync() {
+  if (values.global) {
+    const r = await reconcileFromMetadata(
+      getGlobalPaths().metaPath,
+      getGlobalInstallBases()
+    );
+    reportSync("global", r);
+  } else {
+    const proj = await reconcileFromMetadata(
+      getProjectPaths(process.cwd()).metaPath,
+      getProjectInstallBases(process.cwd())
+    );
+    reportSync("project", proj);
+    const glob = await reconcileFromMetadata(
+      getGlobalPaths().metaPath,
+      getGlobalInstallBases()
+    );
+    reportSync("global", glob);
+  }
+}
+
+function reportSync(
+  scope: string,
+  r: { created: { name: string; base: string }[]; skipped: { name: string; reason: string }[] }
+): void {
+  if (r.created.length === 0 && r.skipped.length === 0) {
+    console.log(`${scope}: already in sync`);
+    return;
+  }
+  for (const c of r.created) {
+    console.log(`${scope}: linked ${c.name} → ${c.base}`);
+  }
+  for (const s of r.skipped) {
+    console.log(`${scope}: skipped ${s.name} (${s.reason})`);
+  }
+}
+
 const commands: Record<string, () => Promise<void>> = {
   add: handleAdd,
   list: handleList,
@@ -204,6 +318,7 @@ const commands: Record<string, () => Promise<void>> = {
   rm: handleRemove,
   edit: handleEdit,
   publish: handlePublish,
+  sync: handleSync,
 };
 
 const handler = commands[command];

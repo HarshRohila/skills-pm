@@ -6,6 +6,7 @@ export interface SkillEntry {
   ref: string;
   skillDir: string;
   installedAt: string;
+  targets?: string[];
 }
 
 export interface Metadata {

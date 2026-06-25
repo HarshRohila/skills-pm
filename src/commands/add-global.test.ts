@@ -18,37 +18,42 @@ afterEach(async () => {
 });
 
 describe("addSkill with global paths", () => {
-  test("-g flag installs to global target path", async () => {
-    const globalTarget = join(tempDir, ".cursor/skills");
+  test("-g flag installs into both cursor and claude global bases", async () => {
+    const bases = [
+      join(tempDir, ".cursor/skills"),
+      join(tempDir, ".claude/skills"),
+    ];
     const globalMeta = join(tempDir, ".cache/skills-pm/global.json");
 
     const result = await addSkill({
       repoDir: resolve(fixturesDir, "sample-repo"),
       skillName: "my-skill",
-      targetBase: globalTarget,
+      targetBases: bases,
       metaPath: globalMeta,
       source: "test/sample-repo",
       ref: "HEAD",
     });
 
-    expect(result.installedTo).toBe(globalTarget);
+    expect(result.installedTo).toEqual(bases);
 
-    const stats = await lstat(join(globalTarget, "my-skill"));
-    expect(stats.isSymbolicLink()).toBe(true);
+    for (const base of bases) {
+      const stats = await lstat(join(base, "my-skill"));
+      expect(stats.isSymbolicLink()).toBe(true);
+    }
 
     const meta = await readMetadata(globalMeta);
     expect(meta.skills["my-skill"]).toBeDefined();
   });
 
   test("global install does not affect project metadata", async () => {
-    const globalTarget = join(tempDir, ".cursor/skills");
+    const globalBases = [join(tempDir, ".cursor/skills")];
     const globalMeta = join(tempDir, ".cache/skills-pm/global.json");
     const projectMeta = join(tempDir, "project/.skills-pm.json");
 
     await addSkill({
       repoDir: resolve(fixturesDir, "sample-repo"),
       skillName: "my-skill",
-      targetBase: globalTarget,
+      targetBases: globalBases,
       metaPath: globalMeta,
       source: "test/sample-repo",
       ref: "HEAD",

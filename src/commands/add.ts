@@ -5,7 +5,7 @@ import { installSkill } from "../install.ts";
 export interface AddOptions {
   repoDir: string;
   skillName: string;
-  targetBase: string;
+  targetBases: string[];
   metaPath: string;
   source: string;
   ref: string;
@@ -13,7 +13,7 @@ export interface AddOptions {
 
 export interface AddAllOptions {
   repoDir: string;
-  targetBase: string;
+  targetBases: string[];
   metaPath: string;
   source: string;
   ref: string;
@@ -22,7 +22,7 @@ export interface AddAllOptions {
 export interface AddResult {
   name: string;
   description: string;
-  installedTo: string;
+  installedTo: string[];
 }
 
 export async function addSkill(options: AddOptions): Promise<AddResult> {
@@ -55,7 +55,7 @@ export async function addSkill(options: AddOptions): Promise<AddResult> {
   await installSkill({
     name: match.name,
     sourceDir: match.dir,
-    targetBase: options.targetBase,
+    targetBases: options.targetBases,
     metaPath: options.metaPath,
     source: options.source,
     ref: options.ref,
@@ -64,7 +64,7 @@ export async function addSkill(options: AddOptions): Promise<AddResult> {
   return {
     name: match.name,
     description: match.description,
-    installedTo: options.targetBase,
+    installedTo: options.targetBases,
   };
 }
 
@@ -93,7 +93,7 @@ export async function addAllSkills(options: AddAllOptions): Promise<AddResult[]>
     await installSkill({
       name: skill.name,
       sourceDir: skill.dir,
-      targetBase: options.targetBase,
+      targetBases: options.targetBases,
       metaPath: options.metaPath,
       source: options.source,
       ref: options.ref,
@@ -101,7 +101,7 @@ export async function addAllSkills(options: AddAllOptions): Promise<AddResult[]>
     results.push({
       name: skill.name,
       description: skill.description,
-      installedTo: options.targetBase,
+      installedTo: options.targetBases,
     });
   }
 

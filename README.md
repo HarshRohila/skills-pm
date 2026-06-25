@@ -1,6 +1,6 @@
 # skills-pm
 
-A package manager for [Cursor](https://cursor.com) agent skills. Install skills from public or private GitHub repositories with a single command.
+A package manager for agent skills, supporting both [Cursor](https://cursor.com) and [Claude Code](https://claude.com/claude-code). Install skills from public or private GitHub repositories with a single command; the same install is symlinked into both agents' skill directories.
 
 ## Prerequisites
 
@@ -139,10 +139,23 @@ For editing, `skills-pm edit` copies an installed skill from the cache into `./s
 
 ### Installation paths
 
-| Scope | Skills directory | Metadata file |
-|-------|-----------------|---------------|
-| Project (default) | `.agents/skills/<name>/` | `.skills-pm.json` |
-| Global (`-g`) | `~/.cursor/skills/<name>/` | `~/.cache/skills-pm/global.json` |
+Every install writes symlinks into **both** Cursor and Claude Code skill directories. The skill body lives once in the cache; both directories link to it.
+
+| Scope | Cursor path | Claude Code path | Metadata file |
+|-------|-------------|------------------|---------------|
+| Project (default) | `.agents/skills/<name>/` | `.claude/skills/<name>/` | `.skills-pm.json` |
+| Global (`-g`) | `~/.cursor/skills/<name>/` | `~/.claude/skills/<name>/` | `~/.cache/skills-pm/global.json` |
+
+### Sync / reconcile
+
+After upgrading `skills-pm` from a Cursor-only release, existing installs only have a Cursor symlink. `skills-pm` reconciles missing symlinks (e.g. adding the Claude Code link for already-installed skills) automatically the next time you run `add`, `list`, `remove`, or `edit`. To do it explicitly:
+
+```bash
+skills-pm sync          # reconcile project + global
+skills-pm sync -g       # reconcile global only
+```
+
+Reconcile is idempotent and silent unless it creates a link; pass `-v` to see what it inspected.
 
 ### Skill discovery
 

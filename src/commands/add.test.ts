@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { addSkill, addAllSkills, type AddOptions } from "./add.ts";
 import { readMetadata } from "../metadata.ts";
 import { join } from "path";
-import { mkdtemp, rm, lstat, readlink } from "fs/promises";
+import { mkdtemp, rm, lstat } from "fs/promises";
 import { tmpdir } from "os";
 import { resolve } from "path";
 
@@ -19,12 +19,16 @@ afterEach(async () => {
 });
 
 describe("addSkill (integration with fixtures)", () => {
-  test("installs a named skill from a local directory", async () => {
+  test("installs a named skill into every target base", async () => {
     const projectDir = join(tempDir, "project");
+    const bases = [
+      join(projectDir, ".agents/skills"),
+      join(projectDir, ".claude/skills"),
+    ];
     const result = await addSkill({
       repoDir: resolve(fixturesDir, "sample-repo"),
       skillName: "my-skill",
-      targetBase: join(projectDir, ".agents/skills"),
+      targetBases: bases,
       metaPath: join(projectDir, ".skills-pm.json"),
       source: "test/sample-repo",
       ref: "HEAD",
@@ -32,23 +36,24 @@ describe("addSkill (integration with fixtures)", () => {
 
     expect(result.name).toBe("my-skill");
 
-    // Symlink exists
-    const linkPath = join(projectDir, ".agents/skills/my-skill");
-    const stats = await lstat(linkPath);
-    expect(stats.isSymbolicLink()).toBe(true);
+    for (const base of bases) {
+      const stats = await lstat(join(base, "my-skill"));
+      expect(stats.isSymbolicLink()).toBe(true);
+    }
 
-    // Metadata recorded
     const meta = await readMetadata(join(projectDir, ".skills-pm.json"));
     expect(meta.skills["my-skill"]).toBeDefined();
     expect(meta.skills["my-skill"]!.source).toBe("test/sample-repo");
+    expect(meta.skills["my-skill"]!.targets).toEqual(bases);
   });
 
   test("succeeds when run again for an already-installed skill", async () => {
     const projectDir = join(tempDir, "project");
+    const bases = [join(projectDir, ".agents/skills")];
     const opts: AddOptions = {
       repoDir: resolve(fixturesDir, "sample-repo"),
       skillName: "my-skill",
-      targetBase: join(projectDir, ".agents/skills"),
+      targetBases: bases,
       metaPath: join(projectDir, ".skills-pm.json"),
       source: "test/sample-repo",
       ref: "HEAD",
@@ -59,12 +64,10 @@ describe("addSkill (integration with fixtures)", () => {
 
     expect(result.name).toBe("my-skill");
 
-    // Symlink still valid
-    const linkPath = join(projectDir, ".agents/skills/my-skill");
+    const linkPath = join(bases[0]!, "my-skill");
     const stats = await lstat(linkPath);
     expect(stats.isSymbolicLink()).toBe(true);
 
-    // Metadata still present
     const meta = await readMetadata(join(projectDir, ".skills-pm.json"));
     expect(meta.skills["my-skill"]).toBeDefined();
   });
@@ -75,7 +78,7 @@ describe("addSkill (integration with fixtures)", () => {
       addSkill({
         repoDir: resolve(fixturesDir, "sample-repo"),
         skillName: "nonexistent-skill",
-        targetBase: join(projectDir, ".agents/skills"),
+        targetBases: [join(projectDir, ".agents/skills")],
         metaPath: join(projectDir, ".skills-pm.json"),
         source: "test/sample-repo",
         ref: "HEAD",
@@ -89,7 +92,7 @@ describe("addSkill (integration with fixtures)", () => {
       addSkill({
         repoDir: resolve(fixturesDir, "empty-repo"),
         skillName: "anything",
-        targetBase: join(projectDir, ".agents/skills"),
+        targetBases: [join(projectDir, ".agents/skills")],
         metaPath: join(projectDir, ".skills-pm.json"),
         source: "test/empty-repo",
         ref: "HEAD",
@@ -99,11 +102,15 @@ describe("addSkill (integration with fixtures)", () => {
 });
 
 describe("addAllSkills", () => {
-  test("installs all discovered skills from a repo", async () => {
+  test("installs all discovered skills into every target base", async () => {
     const projectDir = join(tempDir, "project");
+    const bases = [
+      join(projectDir, ".agents/skills"),
+      join(projectDir, ".claude/skills"),
+    ];
     const results = await addAllSkills({
       repoDir: resolve(fixturesDir, "sample-repo"),
-      targetBase: join(projectDir, ".agents/skills"),
+      targetBases: bases,
       metaPath: join(projectDir, ".skills-pm.json"),
       source: "test/sample-repo",
       ref: "HEAD",
@@ -113,9 +120,10 @@ describe("addAllSkills", () => {
     expect(names).toEqual(["claude-skill", "curated-skill", "my-skill"]);
 
     for (const result of results) {
-      const linkPath = join(projectDir, ".agents/skills", result.name);
-      const stats = await lstat(linkPath);
-      expect(stats.isSymbolicLink()).toBe(true);
+      for (const base of bases) {
+        const stats = await lstat(join(base, result.name));
+        expect(stats.isSymbolicLink()).toBe(true);
+      }
     }
 
     const meta = await readMetadata(join(projectDir, ".skills-pm.json"));
@@ -131,7 +139,7 @@ describe("addAllSkills", () => {
     expect(
       addAllSkills({
         repoDir: resolve(fixturesDir, "empty-repo"),
-        targetBase: join(projectDir, ".agents/skills"),
+        targetBases: [join(projectDir, ".agents/skills")],
         metaPath: join(projectDir, ".skills-pm.json"),
         source: "test/empty-repo",
         ref: "HEAD",

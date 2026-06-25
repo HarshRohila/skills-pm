@@ -17,73 +17,69 @@ afterEach(async () => {
 
 async function setupInstalledSkill(
   name: string,
-  targetBase: string,
+  bases: string[],
   metaPath: string
 ) {
   const sourceDir = join(tempDir, `source-${name}`);
   await mkdir(sourceDir, { recursive: true });
   await Bun.write(join(sourceDir, "SKILL.md"), "# test");
 
-  await mkdir(targetBase, { recursive: true });
-  await symlink(sourceDir, join(targetBase, name));
+  for (const base of bases) {
+    await mkdir(base, { recursive: true });
+    await symlink(sourceDir, join(base, name));
+  }
 
   await writeSkillEntry(metaPath, name, {
     source: "owner/repo",
     ref: "main",
     skillDir: sourceDir,
     installedAt: new Date().toISOString(),
+    targets: bases,
   });
 }
 
 describe("removeSkill", () => {
-  test("removes symlink from target path", async () => {
-    const targetBase = join(tempDir, "project/.agents/skills");
+  test("removes symlinks from every target base", async () => {
+    const bases = [
+      join(tempDir, "project/.agents/skills"),
+      join(tempDir, "project/.claude/skills"),
+    ];
     const metaPath = join(tempDir, "project/.skills-pm.json");
 
-    await setupInstalledSkill("my-skill", targetBase, metaPath);
+    await setupInstalledSkill("my-skill", bases, metaPath);
 
-    // Verify symlink exists before removal
-    const before = await lstat(join(targetBase, "my-skill"));
-    expect(before.isSymbolicLink()).toBe(true);
+    for (const base of bases) {
+      const before = await lstat(join(base, "my-skill"));
+      expect(before.isSymbolicLink()).toBe(true);
+    }
 
-    await removeSkill({
-      name: "my-skill",
-      targetBase,
-      metaPath,
-    });
+    await removeSkill({ name: "my-skill", targetBases: bases, metaPath });
 
-    // Symlink should be gone
-    expect(lstat(join(targetBase, "my-skill"))).rejects.toThrow();
+    for (const base of bases) {
+      expect(lstat(join(base, "my-skill"))).rejects.toThrow();
+    }
   });
 
   test("removes entry from metadata", async () => {
-    const targetBase = join(tempDir, "project/.agents/skills");
+    const bases = [join(tempDir, "project/.agents/skills")];
     const metaPath = join(tempDir, "project/.skills-pm.json");
 
-    await setupInstalledSkill("my-skill", targetBase, metaPath);
+    await setupInstalledSkill("my-skill", bases, metaPath);
 
-    await removeSkill({
-      name: "my-skill",
-      targetBase,
-      metaPath,
-    });
+    await removeSkill({ name: "my-skill", targetBases: bases, metaPath });
 
     const meta = await readMetadata(metaPath);
     expect(meta.skills["my-skill"]).toBeUndefined();
   });
 
   test("preserves other skills in metadata", async () => {
-    const targetBase = join(tempDir, "project/.agents/skills");
+    const bases = [join(tempDir, "project/.agents/skills")];
     const metaPath = join(tempDir, "project/.skills-pm.json");
 
-    await setupInstalledSkill("skill-a", targetBase, metaPath);
-    await setupInstalledSkill("skill-b", targetBase, metaPath);
+    await setupInstalledSkill("skill-a", bases, metaPath);
+    await setupInstalledSkill("skill-b", bases, metaPath);
 
-    await removeSkill({
-      name: "skill-a",
-      targetBase,
-      metaPath,
-    });
+    await removeSkill({ name: "skill-a", targetBases: bases, metaPath });
 
     const meta = await readMetadata(metaPath);
     expect(meta.skills["skill-a"]).toBeUndefined();
@@ -91,32 +87,44 @@ describe("removeSkill", () => {
   });
 
   test("throws when skill is not found in metadata", async () => {
-    const targetBase = join(tempDir, "project/.agents/skills");
+    const bases = [join(tempDir, "project/.agents/skills")];
     const metaPath = join(tempDir, "project/.skills-pm.json");
 
     expect(
-      removeSkill({
-        name: "nonexistent",
-        targetBase,
-        metaPath,
-      })
+      removeSkill({ name: "nonexistent", targetBases: bases, metaPath })
     ).rejects.toThrow('Skill "nonexistent" is not installed');
   });
 
-  test("works with -g global paths", async () => {
-    const globalTarget = join(tempDir, ".cursor/skills");
-    const globalMeta = join(tempDir, ".cache/skills-pm/global.json");
+  test("tolerates a base where the symlink never existed", async () => {
+    const bases = [
+      join(tempDir, "project/.agents/skills"),
+      join(tempDir, "project/.claude/skills"),
+    ];
+    const metaPath = join(tempDir, "project/.skills-pm.json");
 
-    await setupInstalledSkill("global-skill", globalTarget, globalMeta);
+    await setupInstalledSkill("my-skill", [bases[0]!], metaPath);
 
-    await removeSkill({
-      name: "global-skill",
-      targetBase: globalTarget,
-      metaPath: globalMeta,
-    });
+    await removeSkill({ name: "my-skill", targetBases: bases, metaPath });
 
-    const meta = await readMetadata(globalMeta);
+    const meta = await readMetadata(metaPath);
+    expect(meta.skills["my-skill"]).toBeUndefined();
+  });
+
+  test("works with global paths", async () => {
+    const bases = [
+      join(tempDir, ".cursor/skills"),
+      join(tempDir, ".claude/skills"),
+    ];
+    const metaPath = join(tempDir, ".cache/skills-pm/global.json");
+
+    await setupInstalledSkill("global-skill", bases, metaPath);
+
+    await removeSkill({ name: "global-skill", targetBases: bases, metaPath });
+
+    const meta = await readMetadata(metaPath);
     expect(meta.skills["global-skill"]).toBeUndefined();
-    expect(lstat(join(globalTarget, "global-skill"))).rejects.toThrow();
+    for (const base of bases) {
+      expect(lstat(join(base, "global-skill"))).rejects.toThrow();
+    }
   });
 });
