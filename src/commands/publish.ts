@@ -9,6 +9,8 @@ export interface PublishOptions {
   branch: string;
   skillName?: string;
   message?: string;
+  /** Test seam: run after fetch, before parent tree is used. */
+  onAfterFetch?: () => void | Promise<void>;
 }
 
 export interface PublishResult {
@@ -16,6 +18,9 @@ export interface PublishResult {
   skills: string[];
   commitSha: string;
 }
+
+const MISSING_REMOTE_REF_RE =
+  /couldn't find remote ref|unknown revision or path not in the working tree/i;
 
 function execGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,10 +92,86 @@ async function buildTreeSha(cwd: string, dirPath: string): Promise<string> {
   return execGitWithStdin(["mktree"], cwd, lines.join("\n") + "\n");
 }
 
+function isMissingRemoteRef(error: unknown): boolean {
+  return error instanceof Error && MISSING_REMOTE_REF_RE.test(error.message);
+}
+
+/** Fetch origin/<branch>. Returns tip SHA, or null if the remote branch does not exist. */
+export async function fetchRemoteBranchTip(
+  projectDir: string,
+  branch: string
+): Promise<string | null> {
+  try {
+    await execGit(["fetch", "origin", branch], projectDir);
+  } catch (error) {
+    if (isMissingRemoteRef(error)) {
+      return null;
+    }
+    throw error;
+  }
+  return execGit(["rev-parse", "--verify", "FETCH_HEAD"], projectDir);
+}
+
+async function loadParentSkillEntries(
+  projectDir: string,
+  parentSha: string
+): Promise<Map<string, string>> {
+  const existingEntries = new Map<string, string>();
+  try {
+    const treeOutput = await execGit(
+      ["ls-tree", `${parentSha}:skills`],
+      projectDir
+    );
+    for (const line of treeOutput.split("\n")) {
+      if (!line) continue;
+      const tabIdx = line.indexOf("\t");
+      const name = line.slice(tabIdx + 1);
+      const meta = line.slice(0, tabIdx);
+      existingEntries.set(name, `${meta}\t${name}`);
+    }
+  } catch {
+    // no skills/ tree on the branch yet
+  }
+  return existingEntries;
+}
+
+export async function pushPublishedBranch(
+  projectDir: string,
+  branch: string,
+  parentSha: string | null
+): Promise<void> {
+  try {
+    if (parentSha) {
+      await execGit(
+        [
+          "push",
+          "origin",
+          branch,
+          `--force-with-lease=refs/heads/${branch}:${parentSha}`,
+        ],
+        projectDir
+      );
+    } else {
+      await execGit(["push", "origin", branch], projectDir);
+    }
+  } catch (error) {
+    if (
+      parentSha &&
+      error instanceof Error &&
+      /stale info|non-fast-forward/i.test(error.message)
+    ) {
+      throw new Error(
+        `Remote branch ${branch} moved since fetch. Refusing to overwrite. Re-run publish.`
+      );
+    }
+    throw error;
+  }
+}
+
 export async function publishSkills(
   options: PublishOptions
 ): Promise<PublishResult> {
-  const { projectDir, branch, skillName, message } = options;
+  const { projectDir, branch, skillName, message, onAfterFetch } = options;
 
   const skillPaths = await discoverSkillPaths(projectDir);
   if (skillPaths.length === 0) {
@@ -119,34 +200,14 @@ export async function publishSkills(
     }
   }
 
-  let parentSha: string | null = null;
-  try {
-    parentSha = await execGit(
-      ["rev-parse", "--verify", `refs/heads/${branch}`],
-      projectDir
-    );
-  } catch {
-    // branch doesn't exist yet — orphan commit
+  const parentSha = await fetchRemoteBranchTip(projectDir, branch);
+  if (onAfterFetch) {
+    await onAfterFetch();
   }
 
-  const existingEntries = new Map<string, string>();
-  if (parentSha && skillName) {
-    try {
-      const treeOutput = await execGit(
-        ["ls-tree", `${parentSha}:skills`],
-        projectDir
-      );
-      for (const line of treeOutput.split("\n")) {
-        if (!line) continue;
-        const tabIdx = line.indexOf("\t");
-        const name = line.slice(tabIdx + 1);
-        const meta = line.slice(0, tabIdx);
-        existingEntries.set(name, `${meta}\t${name}`);
-      }
-    } catch {
-      // no skills/ tree on the branch yet
-    }
-  }
+  const existingEntries = parentSha
+    ? await loadParentSkillEntries(projectDir, parentSha)
+    : new Map<string, string>();
 
   for (const skill of selected) {
     const sha = await buildTreeSha(projectDir, skill.dir);
@@ -178,10 +239,7 @@ export async function publishSkills(
     projectDir
   );
 
-  await execGit(
-    ["push", "origin", branch, "--force", "--no-verify"],
-    projectDir
-  );
+  await pushPublishedBranch(projectDir, branch, parentSha);
 
   return {
     branch,

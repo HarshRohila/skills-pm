@@ -19,6 +19,41 @@ interface SkillFixture {
   extraFiles?: Record<string, string>;
 }
 
+async function writeSkill(
+  repoDir: string,
+  name: string,
+  fixture: SkillFixture
+): Promise<void> {
+  const skillDir = join(repoDir, "skills", name);
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${fixture.description}\n---\n\n${fixture.content}\n`
+  );
+  if (fixture.extraFiles) {
+    for (const [filename, fileContent] of Object.entries(fixture.extraFiles)) {
+      await writeFile(join(skillDir, filename), fileContent);
+    }
+  }
+}
+
+async function cloneWorkingCopy(
+  bareDir: string,
+  destDir: string
+): Promise<void> {
+  await git(["clone", bareDir, destDir], tmpdir());
+  await git(["config", "user.email", "test@test.com"], destDir);
+  await git(["config", "user.name", "Test"], destDir);
+}
+
+async function skillNamesOnBranch(
+  cwd: string,
+  branch: string
+): Promise<string[]> {
+  const listing = await git(["ls-tree", "--name-only", `${branch}:skills`], cwd);
+  return listing.split("\n").filter(Boolean).sort();
+}
+
 async function createBareRemote(bareDir: string, repoDir: string): Promise<void> {
   await git(["init", "--bare"], bareDir);
   await git(["remote", "add", "origin", bareDir], repoDir);
@@ -37,17 +72,7 @@ async function createTestRepo(
   await git(["config", "user.name", "Test"], dir);
 
   for (const [name, skill] of Object.entries(skills)) {
-    const skillDir = join(dir, "skills", name);
-    await mkdir(skillDir, { recursive: true });
-    await writeFile(
-      join(skillDir, "SKILL.md"),
-      `---\nname: ${name}\ndescription: ${skill.description}\n---\n\n${skill.content}\n`
-    );
-    if (skill.extraFiles) {
-      for (const [filename, fileContent] of Object.entries(skill.extraFiles)) {
-        await writeFile(join(skillDir, filename), fileContent);
-      }
-    }
+    await writeSkill(dir, name, skill);
   }
 
   await writeFile(join(dir, "README.md"), "# Test Repo");
@@ -279,7 +304,7 @@ describe("publishSkills", () => {
     expect(content).toContain("name: my-skill");
   });
 
-  test("force-pushes updated branch to the remote", async () => {
+  test("updates existing remote branch without --force", async () => {
     const repoDir = join(tempDir, "repo");
     await mkdir(repoDir);
     const bareDir = await createTestRepo(repoDir, {
@@ -376,6 +401,174 @@ describe("publishSkills", () => {
       repoDir
     );
     expect(skillB).toContain("name: skill-b");
+  });
+
+  test("stale local branch ref does not drop a skill published from another clone", async () => {
+    const repoA = join(tempDir, "clone-a");
+    await mkdir(repoA);
+    const bareDir = await createTestRepo(repoA, {
+      "seed-api-data": { description: "Seed", content: "# Seed" },
+      "pr-review": { description: "Review", content: "# Review" },
+    });
+    const branch = "harsh/skills";
+
+    await publishSkills({
+      projectDir: repoA,
+      branch,
+      skillName: "seed-api-data",
+    });
+    const seedTip = await git(["rev-parse", branch], repoA);
+
+    const repoB = join(tempDir, "clone-b");
+    await cloneWorkingCopy(bareDir, repoB);
+    await git(["fetch", "origin", `${branch}:${branch}`], repoB);
+    expect(await git(["rev-parse", `refs/heads/${branch}`], repoB)).toBe(
+      seedTip
+    );
+
+    await writeSkill(repoA, "seed-api-data", {
+      description: "Seed",
+      content: "# Seed updated",
+    });
+    await publishSkills({
+      projectDir: repoA,
+      branch,
+      skillName: "pr-review",
+    });
+    const remoteAfterA = await git(["rev-parse", branch], bareDir);
+
+    await writeSkill(repoB, "pr-review", {
+      description: "Review",
+      content: "# Review from B",
+    });
+    const result = await publishSkills({
+      projectDir: repoB,
+      branch,
+      skillName: "pr-review",
+    });
+
+    expect(await skillNamesOnBranch(bareDir, branch)).toEqual([
+      "pr-review",
+      "seed-api-data",
+    ]);
+    const parent = await git(["rev-parse", `${result.commitSha}^`], repoB);
+    expect(parent).toBe(remoteAfterA);
+  });
+
+  test("publish from clone with no local branch ref does not orphan the remote", async () => {
+    const repoA = join(tempDir, "clone-a");
+    await mkdir(repoA);
+    const bareDir = await createTestRepo(repoA, {
+      "skill-a": { description: "A", content: "# A" },
+      "skill-b": { description: "B", content: "# B" },
+      "skill-c": { description: "C", content: "# C" },
+    });
+    const branch = "published-skills";
+
+    await publishSkills({ projectDir: repoA, branch });
+    const remoteTip = await git(["rev-parse", branch], bareDir);
+
+    const repoB = join(tempDir, "clone-b");
+    await cloneWorkingCopy(bareDir, repoB);
+    await expect(
+      git(["rev-parse", "--verify", `refs/heads/${branch}`], repoB)
+    ).rejects.toThrow();
+
+    await writeSkill(repoB, "foo", { description: "Foo", content: "# Foo" });
+    const result = await publishSkills({
+      projectDir: repoB,
+      branch,
+      skillName: "foo",
+    });
+
+    expect(await skillNamesOnBranch(bareDir, branch)).toEqual([
+      "foo",
+      "skill-a",
+      "skill-b",
+      "skill-c",
+    ]);
+    const parent = await git(["rev-parse", `${result.commitSha}^`], repoB);
+    expect(parent).toBe(remoteTip);
+    const parentCount = await git(
+      ["rev-list", "--count", result.commitSha],
+      repoB
+    );
+    expect(Number(parentCount)).toBeGreaterThan(1);
+  });
+
+  test("publish without -s keeps remote-only skills not in the working copy", async () => {
+    const repoA = join(tempDir, "clone-a");
+    await mkdir(repoA);
+    const bareDir = await createTestRepo(repoA, {
+      "skill-a": { description: "A", content: "# A" },
+      "remote-only": { description: "Remote", content: "# Remote" },
+    });
+    const branch = "published-skills";
+
+    await publishSkills({ projectDir: repoA, branch });
+
+    const repoB = join(tempDir, "clone-b");
+    await cloneWorkingCopy(bareDir, repoB);
+    await rm(join(repoB, "skills/remote-only"), { recursive: true, force: true });
+    await writeSkill(repoB, "skill-local", {
+      description: "Local",
+      content: "# Local",
+    });
+
+    await publishSkills({ projectDir: repoB, branch });
+
+    expect(await skillNamesOnBranch(bareDir, branch)).toEqual([
+      "remote-only",
+      "skill-a",
+      "skill-local",
+    ]);
+  });
+
+  test("push --force-with-lease fails when remote moved after fetch", async () => {
+    const repoA = join(tempDir, "clone-a");
+    await mkdir(repoA);
+    const bareDir = await createTestRepo(repoA, {
+      "skill-a": { description: "A", content: "# A" },
+      "skill-b": { description: "B", content: "# B" },
+    });
+    const branch = "published-skills";
+
+    await publishSkills({
+      projectDir: repoA,
+      branch,
+      skillName: "skill-a",
+    });
+    const remoteBeforeRace = await git(["rev-parse", branch], bareDir);
+
+    const repoB = join(tempDir, "clone-b");
+    await cloneWorkingCopy(bareDir, repoB);
+    await writeSkill(repoB, "skill-b", { description: "B", content: "# B" });
+
+    await expect(
+      publishSkills({
+        projectDir: repoB,
+        branch,
+        skillName: "skill-b",
+        onAfterFetch: async () => {
+          await publishSkills({
+            projectDir: repoA,
+            branch,
+            skillName: "skill-a",
+            message: "Concurrent update from A",
+          });
+        },
+      })
+    ).rejects.toThrow(
+      `Remote branch ${branch} moved since fetch. Refusing to overwrite. Re-run publish.`
+    );
+
+    expect(await git(["rev-parse", branch], bareDir)).not.toBe(
+      remoteBeforeRace
+    );
+    expect(await skillNamesOnBranch(bareDir, branch)).toEqual(["skill-a"]);
+    await expect(
+      git(["show", `${branch}:skills/skill-b/SKILL.md`], bareDir)
+    ).rejects.toThrow();
   });
 
   test("does not affect the current working branch", async () => {

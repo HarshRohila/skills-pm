@@ -119,7 +119,9 @@ skills-pm publish -b skills -s my-skill
 skills-pm publish -b skills -m "Release v1.0 skills"
 ```
 
-This creates (or updates) the target branch with your skills organized under `skills/<name>/` and force-pushes it to the remote. The branch has its own independent history and your working directory is never modified.
+This fetches the remote branch first (if it exists) and commits on that tip. The branch tree is only `skills/<name>/`. Updates are additive: existing skills on the branch stay, and selected local skills are overlaid (`-s` one skill; omit `-s` to overlay every skill found in the working copy). The working directory is never checked out onto the skills branch.
+
+If the remote branch moved since fetch, publish aborts instead of overwriting. Re-run `skills-pm publish`.
 
 Once published, others can install directly from that branch:
 
