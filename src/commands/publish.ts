@@ -9,6 +9,7 @@ export interface PublishOptions {
   branch: string;
   skillName?: string;
   message?: string;
+  onProgress?: (message: string) => void;
   /** Test seam: run after fetch, before parent tree is used. */
   onAfterFetch?: () => void | Promise<void>;
 }
@@ -22,12 +23,16 @@ export interface PublishResult {
 const MISSING_REMOTE_REF_RE =
   /couldn't find remote ref|unknown revision or path not in the working tree/i;
 
-function execGit(args: string[], cwd: string): Promise<string> {
+function execGit(
+  args: string[],
+  cwd: string,
+  opts?: { env?: NodeJS.ProcessEnv }
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       args,
-      { cwd, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, env: opts?.env, maxBuffer: 10 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
           reject(
@@ -140,6 +145,9 @@ export async function pushPublishedBranch(
   branch: string,
   parentSha: string | null
 ): Promise<void> {
+  // Skip host repo pre-push hooks: the pushed tree only contains skills/,
+  // so repo test/lint/typecheck hooks are irrelevant and can hang publish.
+  const env = { ...process.env, HUSKY: "0" };
   try {
     if (parentSha) {
       await execGit(
@@ -148,11 +156,17 @@ export async function pushPublishedBranch(
           "origin",
           branch,
           `--force-with-lease=refs/heads/${branch}:${parentSha}`,
+          "--no-verify",
         ],
-        projectDir
+        projectDir,
+        { env }
       );
     } else {
-      await execGit(["push", "origin", branch], projectDir);
+      await execGit(
+        ["push", "origin", branch, "--no-verify"],
+        projectDir,
+        { env }
+      );
     }
   } catch (error) {
     if (
@@ -171,7 +185,9 @@ export async function pushPublishedBranch(
 export async function publishSkills(
   options: PublishOptions
 ): Promise<PublishResult> {
-  const { projectDir, branch, skillName, message, onAfterFetch } = options;
+  const { projectDir, branch, skillName, message, onProgress, onAfterFetch } =
+    options;
+  const report = (msg: string) => onProgress?.(msg);
 
   const skillPaths = await discoverSkillPaths(projectDir);
   if (skillPaths.length === 0) {
@@ -200,6 +216,7 @@ export async function publishSkills(
     }
   }
 
+  report(`Fetching origin/${branch}...`);
   const parentSha = await fetchRemoteBranchTip(projectDir, branch);
   if (onAfterFetch) {
     await onAfterFetch();
@@ -233,12 +250,14 @@ export async function publishSkills(
     commitArgs.splice(2, 0, "-p", parentSha);
   }
   const commitSha = await execGit(commitArgs, projectDir);
+  report(`Created commit ${commitSha}`);
 
   await execGit(
     ["update-ref", `refs/heads/${branch}`, commitSha],
     projectDir
   );
 
+  report(`Pushing ${branch} to origin...`);
   await pushPublishedBranch(projectDir, branch, parentSha);
 
   return {

@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { publishSkills } from "./publish.ts";
 import { join } from "path";
 import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -58,6 +59,18 @@ async function createBareRemote(bareDir: string, repoDir: string): Promise<void>
   await git(["init", "--bare"], bareDir);
   await git(["remote", "add", "origin", bareDir], repoDir);
   await git(["push", "origin", "HEAD"], repoDir);
+}
+
+/** Failing pre-push hook that records it ran, mimicking a host repo test hook. */
+async function writeFailingPrePushHook(
+  repoDir: string,
+  markerPath: string
+): Promise<void> {
+  await writeFile(
+    join(repoDir, ".git/hooks/pre-push"),
+    `#!/bin/sh\ntouch "${markerPath}"\nexit 1\n`,
+    { mode: 0o755 }
+  );
 }
 
 async function createTestRepo(
@@ -302,6 +315,73 @@ describe("publishSkills", () => {
       bareDir
     );
     expect(content).toContain("name: my-skill");
+  });
+
+  test("does not run host repo pre-push hooks when creating the branch", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    const bareDir = await createTestRepo(repoDir, {
+      "my-skill": { description: "Test", content: "# Test" },
+    });
+    const marker = join(tempDir, "hook-ran");
+    await writeFailingPrePushHook(repoDir, marker);
+
+    const result = await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(await git(["rev-parse", "published-skills"], bareDir)).toBe(
+      result.commitSha
+    );
+  });
+
+  test("does not run host repo pre-push hooks when updating an existing branch", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    const bareDir = await createTestRepo(repoDir, {
+      "my-skill": { description: "Original", content: "# Original" },
+    });
+
+    await publishSkills({ projectDir: repoDir, branch: "published-skills" });
+
+    const marker = join(tempDir, "hook-ran");
+    await writeFailingPrePushHook(repoDir, marker);
+    await writeSkill(repoDir, "my-skill", {
+      description: "Original",
+      content: "# Updated",
+    });
+
+    const result = await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+    });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(await git(["rev-parse", "published-skills"], bareDir)).toBe(
+      result.commitSha
+    );
+  });
+
+  test("reports progress before the push", async () => {
+    const repoDir = join(tempDir, "repo");
+    await mkdir(repoDir);
+    await createTestRepo(repoDir, {
+      "my-skill": { description: "Test", content: "# Test" },
+    });
+
+    const messages: string[] = [];
+    const result = await publishSkills({
+      projectDir: repoDir,
+      branch: "published-skills",
+      onProgress: (msg) => messages.push(msg),
+    });
+
+    const commitIdx = messages.findIndex((m) => m.includes(result.commitSha));
+    const pushIdx = messages.findIndex((m) => m.startsWith("Pushing"));
+    expect(commitIdx).toBeGreaterThanOrEqual(0);
+    expect(pushIdx).toBeGreaterThan(commitIdx);
   });
 
   test("updates existing remote branch without --force", async () => {

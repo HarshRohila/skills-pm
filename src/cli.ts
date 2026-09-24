@@ -244,6 +244,7 @@ async function handlePublish() {
     branch,
     skillName: skillFilter,
     message: values.message,
+    onProgress: (msg) => console.log(msg),
   });
 
   console.log(
