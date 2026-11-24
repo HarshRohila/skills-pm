@@ -11,6 +11,10 @@ export interface CloneOptions {
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 
+export function githubUrl(source: ParsedSource): string {
+  return `https://github.com/${source.owner}/${source.repo}.git`;
+}
+
 function execGit(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -29,7 +33,7 @@ export async function cloneRepo(
 ): Promise<string> {
   const refLabel = options.ref ?? "HEAD";
   const destDir = join(options.cacheBase, source.owner, source.repo, refLabel);
-  const url = options.url ?? `https://github.com/${source.owner}/${source.repo}.git`;
+  const url = options.url ?? githubUrl(source);
 
   if (await dirExists(destDir)) {
     if (options.ref && SHA_RE.test(options.ref)) {

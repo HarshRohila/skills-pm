@@ -117,9 +117,14 @@ skills-pm publish -b skills -s my-skill
 
 # With a custom commit message
 skills-pm publish -b skills -m "Release v1.0 skills"
+
+# Publish to a different repo than the current directory's origin
+skills-pm publish owner/repo -b skills
 ```
 
 This fetches the remote branch first (if it exists) and commits on that tip. The branch tree is only `skills/<name>/`. Updates are additive: existing skills on the branch stay, and selected local skills are overlaid (`-s` one skill; omit `-s` to overlay every skill found in the working copy). The working directory is never checked out onto the skills branch.
+
+By default, publish pushes to the current directory's `origin` remote. Pass `[repo]` (as `owner/repo` or a full GitHub URL) to push to a different repository instead.
 
 If the remote branch moved since fetch, publish aborts instead of overwriting. Re-run `skills-pm publish`.
 

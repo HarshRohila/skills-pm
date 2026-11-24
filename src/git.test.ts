@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { cloneRepo, getOriginSource, type CloneOptions } from "./git.ts";
+import { cloneRepo, getOriginSource, githubUrl, type CloneOptions } from "./git.ts";
 import { join } from "path";
 import { mkdtemp, rm, readdir, stat, readFile, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
@@ -17,6 +17,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe("githubUrl", () => {
+  test("builds a .git HTTPS URL from owner/repo", () => {
+    expect(githubUrl({ owner: "acme", repo: "cool-skills" })).toBe(
+      "https://github.com/acme/cool-skills.git"
+    );
+  });
 });
 
 describe("cloneRepo", () => {

@@ -9,6 +9,8 @@ export interface PublishOptions {
   branch: string;
   skillName?: string;
   message?: string;
+  /** Remote name or URL to publish to. Defaults to "origin". */
+  remote?: string;
   onProgress?: (message: string) => void;
   /** Test seam: run after fetch, before parent tree is used. */
   onAfterFetch?: () => void | Promise<void>;
@@ -101,13 +103,14 @@ function isMissingRemoteRef(error: unknown): boolean {
   return error instanceof Error && MISSING_REMOTE_REF_RE.test(error.message);
 }
 
-/** Fetch origin/<branch>. Returns tip SHA, or null if the remote branch does not exist. */
+/** Fetch <branch> from the remote. Returns tip SHA, or null if the remote branch does not exist. */
 export async function fetchRemoteBranchTip(
   projectDir: string,
-  branch: string
+  branch: string,
+  remote: string = "origin"
 ): Promise<string | null> {
   try {
-    await execGit(["fetch", "origin", branch], projectDir);
+    await execGit(["fetch", remote, branch], projectDir);
   } catch (error) {
     if (isMissingRemoteRef(error)) {
       return null;
@@ -143,7 +146,8 @@ async function loadParentSkillEntries(
 export async function pushPublishedBranch(
   projectDir: string,
   branch: string,
-  parentSha: string | null
+  parentSha: string | null,
+  remote: string = "origin"
 ): Promise<void> {
   // Skip host repo pre-push hooks: the pushed tree only contains skills/,
   // so repo test/lint/typecheck hooks are irrelevant and can hang publish.
@@ -153,7 +157,7 @@ export async function pushPublishedBranch(
       await execGit(
         [
           "push",
-          "origin",
+          remote,
           branch,
           `--force-with-lease=refs/heads/${branch}:${parentSha}`,
           "--no-verify",
@@ -163,7 +167,7 @@ export async function pushPublishedBranch(
       );
     } else {
       await execGit(
-        ["push", "origin", branch, "--no-verify"],
+        ["push", remote, branch, "--no-verify"],
         projectDir,
         { env }
       );
@@ -185,8 +189,15 @@ export async function pushPublishedBranch(
 export async function publishSkills(
   options: PublishOptions
 ): Promise<PublishResult> {
-  const { projectDir, branch, skillName, message, onProgress, onAfterFetch } =
-    options;
+  const {
+    projectDir,
+    branch,
+    skillName,
+    message,
+    remote = "origin",
+    onProgress,
+    onAfterFetch,
+  } = options;
   const report = (msg: string) => onProgress?.(msg);
 
   const skillPaths = await discoverSkillPaths(projectDir);
@@ -216,8 +227,8 @@ export async function publishSkills(
     }
   }
 
-  report(`Fetching origin/${branch}...`);
-  const parentSha = await fetchRemoteBranchTip(projectDir, branch);
+  report(`Fetching ${branch} from ${remote}...`);
+  const parentSha = await fetchRemoteBranchTip(projectDir, branch, remote);
   if (onAfterFetch) {
     await onAfterFetch();
   }
@@ -257,8 +268,8 @@ export async function publishSkills(
     projectDir
   );
 
-  report(`Pushing ${branch} to origin...`);
-  await pushPublishedBranch(projectDir, branch, parentSha);
+  report(`Pushing ${branch} to ${remote}...`);
+  await pushPublishedBranch(projectDir, branch, parentSha, remote);
 
   return {
     branch,

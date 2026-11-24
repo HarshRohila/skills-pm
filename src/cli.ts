@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { parseSource } from "./source-parser.ts";
-import { cloneRepo, getOriginSource } from "./git.ts";
+import { cloneRepo, getOriginSource, githubUrl } from "./git.ts";
 import { addSkill, addAllSkills } from "./commands/add.ts";
 import { listSkills, type SkillInfo } from "./commands/list.ts";
 import { removeSkill } from "./commands/remove.ts";
@@ -27,7 +27,7 @@ Usage:
   skills-pm remove <skill-name> [-g]
   skills-pm edit <skill-name> [-g]
   skills-pm sync [-g]
-  skills-pm publish -b <branch> [-s <skill-name>] [-m <message>]
+  skills-pm publish [repo] -b <branch> [-s <skill-name>] [-m <message>]
 
 Options:
   -s, --skill <name>   Skill name to install/publish
@@ -230,20 +230,25 @@ async function handlePublish() {
   const branch = values.branch;
   if (!branch) {
     console.error(
-      "Error: --branch (-b) is required. Usage: skills-pm publish -b <branch> [-s <skill-name>]"
+      "Error: --branch (-b) is required. Usage: skills-pm publish [repo] -b <branch> [-s <skill-name>]"
     );
     process.exit(1);
   }
 
+  const repoArg = positionals[1];
+  const remote = repoArg ? githubUrl(parseSource(repoArg)) : undefined;
+
   const skillFilter = values.skill;
   const filterLabel = skillFilter ? ` (skill: ${skillFilter})` : "";
-  console.log(`Publishing skills to branch "${branch}"${filterLabel}...`);
+  const remoteLabel = repoArg ? ` to repo "${repoArg}"` : "";
+  console.log(`Publishing skills to branch "${branch}"${remoteLabel}${filterLabel}...`);
 
   const result = await publishSkills({
     projectDir: process.cwd(),
     branch,
     skillName: skillFilter,
     message: values.message,
+    remote,
     onProgress: (msg) => console.log(msg),
   });
 

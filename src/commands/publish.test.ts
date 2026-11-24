@@ -651,6 +651,61 @@ describe("publishSkills", () => {
     ).rejects.toThrow();
   });
 
+  describe("remote option", () => {
+    // Two independent bare repos stand in for "the project's own repo"
+    // (wired as `origin`, like every other test in this file) and "someone
+    // else's repo" (wired as `fork`). If `remote: "fork"` is honored, the
+    // publish commit must show up on `fork` and nowhere on `origin`.
+    async function setUpRepoWithTwoRemotes(): Promise<{
+      repoDir: string;
+      originBareDir: string;
+      forkBareDir: string;
+    }> {
+      const repoDir = join(tempDir, "repo");
+      await mkdir(repoDir);
+      const originBareDir = await createTestRepo(repoDir, {
+        "my-skill": { description: "Test", content: "# Test" },
+      });
+
+      const forkBareDir = join(tempDir, "fork-bare");
+      await mkdir(forkBareDir);
+      await git(["init", "--bare"], forkBareDir);
+      await git(["remote", "add", "fork", forkBareDir], repoDir);
+
+      return { repoDir, originBareDir, forkBareDir };
+    }
+
+    test("pushes the published branch to the specified remote", async () => {
+      const { repoDir, forkBareDir } = await setUpRepoWithTwoRemotes();
+
+      const result = await publishSkills({
+        projectDir: repoDir,
+        branch: "published-skills",
+        remote: "fork",
+      });
+
+      const forkCommit = await git(
+        ["rev-parse", "published-skills"],
+        forkBareDir
+      );
+      expect(forkCommit).toBe(result.commitSha);
+    });
+
+    test("leaves the default remote (origin) untouched", async () => {
+      const { repoDir, originBareDir } = await setUpRepoWithTwoRemotes();
+
+      await publishSkills({
+        projectDir: repoDir,
+        branch: "published-skills",
+        remote: "fork",
+      });
+
+      await expect(
+        git(["rev-parse", "--verify", "published-skills"], originBareDir)
+      ).rejects.toThrow();
+    });
+  });
+
   test("does not affect the current working branch", async () => {
     const repoDir = join(tempDir, "repo");
     await mkdir(repoDir);
