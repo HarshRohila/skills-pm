@@ -17,13 +17,22 @@ export function githubUrl(source: ParsedSource): string {
 
 function execGit(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`git ${args[0]} failed (exit ${error.code}): ${stderr.trim()}`));
-      } else {
-        resolve({ stdout, stderr });
+    execFile(
+      "git",
+      args,
+      {
+        cwd,
+        maxBuffer: 10 * 1024 * 1024,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`git ${args[0]} failed (exit ${error.code}): ${stderr.trim()}`));
+        } else {
+          resolve({ stdout, stderr });
+        }
       }
-    });
+    );
   });
 }
 

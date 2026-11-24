@@ -27,12 +27,16 @@ describe("githubUrl", () => {
   });
 });
 
+function githubSshUrl(owner: string, repo: string): string {
+  return `git@github.com:${owner}/${repo}.git`;
+}
+
 describe("cloneRepo", () => {
   test("clones a public repo to cache dir (default branch)", async () => {
     const cacheDir = join(tempDir, "cache");
     const result = await cloneRepo(
       { owner: "vercel-labs", repo: "skills" },
-      { cacheBase: cacheDir }
+      { cacheBase: cacheDir, url: githubSshUrl("vercel-labs", "skills") }
     );
 
     expect(result).toStartWith(cacheDir);
@@ -44,7 +48,7 @@ describe("cloneRepo", () => {
     const cacheDir = join(tempDir, "cache");
     const result = await cloneRepo(
       { owner: "vercel-labs", repo: "skills" },
-      { cacheBase: cacheDir, ref: "main" }
+      { cacheBase: cacheDir, ref: "main", url: githubSshUrl("vercel-labs", "skills") }
     );
 
     expect(result).toContain("/main");
@@ -57,13 +61,13 @@ describe("cloneRepo", () => {
 
     const first = await cloneRepo(
       { owner: "vercel-labs", repo: "skills" },
-      { cacheBase: cacheDir }
+      { cacheBase: cacheDir, url: githubSshUrl("vercel-labs", "skills") }
     );
     const s1 = await stat(first);
 
     const second = await cloneRepo(
       { owner: "vercel-labs", repo: "skills" },
-      { cacheBase: cacheDir }
+      { cacheBase: cacheDir, url: githubSshUrl("vercel-labs", "skills") }
     );
 
     expect(first).toBe(second);
@@ -77,7 +81,10 @@ describe("cloneRepo", () => {
     expect(
       cloneRepo(
         { owner: "nonexistent-owner-xyz", repo: "nonexistent-repo-xyz" },
-        { cacheBase: cacheDir }
+        {
+          cacheBase: cacheDir,
+          url: githubSshUrl("nonexistent-owner-xyz", "nonexistent-repo-xyz"),
+        }
       )
     ).rejects.toThrow();
   }, 30_000);
